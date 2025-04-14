@@ -1,4 +1,4 @@
-﻿**1. Prototyp Foodtrend-Dashboard**
+﻿**1.1 Prototyp Foodtrend-Dashboard**
 
 Dies ist eine interaktive Web-App, die mit [**Streamlit**](https://streamlit.io/) entwickelt wurde.
 Sie analysiert und visualisiert Daten mithilfe von Plotly, Dash, Pandas und weiteren Tools.
