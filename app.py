@@ -1,41 +1,49 @@
 ﻿import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import numpy as np
 import time
 from datetime import datetime
 import warnings
 import random
+import json
 import requests
+from io import StringIO
 
 # Warnungen unterdrücken
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
 # Seitenkonfiguration
 st.set_page_config(
-    page_title="Food Trends Dashboard",
+    page_title="Food Trends Deutschland",
     page_icon="🍔",
     layout="wide"
 )
 
 # Titel und Beschreibung
-st.title("Food Trends Dashboard - Verbessert")
-st.markdown("Entdecke die neuesten Trends bei Lebensmitteln mit einfachen, verständlichen Visualisierungen")
+st.title("Food Trends Deutschland")
+st.markdown("Entdecke die neuesten Lebensmitteltrends in Deutschland")
 
 # Sidebar für Eingaben
 with st.sidebar:
     st.header("Einstellungen")
 
-    # Datenquelle auswählen: Beispieldaten oder TheMealDB API
+    # Datenquelle auswählen - Standardmäßig Beispieldaten verwenden
     datenquelle = st.radio(
         "Datenquelle auswählen",
-        ["Beispieldaten", "TheMealDB API"]
+        ["Beispieldaten", "Google Trends API"]
     )
 
-   # if datenquelle == "TheMealDB API":
-      #  st.info("Die Daten werden von der kostenlosen TheMealDB API abgerufen. Falls es zu Problemen kommt, werden Beispieldaten verwendet.")
+    if datenquelle == "Google Trends API":
+        st.warning("""
+        **Hinweis zu API-Limits:**
+        Google begrenzt die Anzahl der Anfragen. Bei Fehlern:
+        1. Verwende Beispieldaten
+        2. Wähle einen längeren Zeitraum
+        """)
 
-    # Lebensmittelkategorien (wird nur bei Beispieldaten verwendet)
+    # Lebensmittelkategorien
     lebensmittel_kategorien = {
         "Beliebte Küchen": ["Italienisches Essen", "Chinesisches Essen", "Deutsches Essen"],
         "Diät-Trends": ["Vegane Ernährung", "Keto Diät", "Paleo Diät"],
@@ -44,22 +52,9 @@ with st.sidebar:
         "Getränke": ["Kaffee", "Bubble Tea", "Smoothie"]
     }
 
-    # Wenn Beispieldaten genutzt werden, kann eine Kategorie ausgewählt werden
-    if datenquelle == "Beispieldaten":
-        ausgewählte_kategorie = st.selectbox(
-            "Lebensmittelkategorie auswählen",
-            list(lebensmittel_kategorien.keys())
-        )
-    else:
-        # Bei der API werden die Mahlzeiten dynamisch abgerufen – Kategorie wird ignoriert
-        ausgewählte_kategorie = "TheMealDB"  # Platzhalter
-
-    # Anzahl der Keywords
-    max_keywords = st.slider(
-        "Anzahl der Suchbegriffe (je weniger, desto stabiler)",
-        min_value=1,
-        max_value=5,
-        value=3
+    ausgewählte_kategorie = st.selectbox(
+        "Lebensmittelkategorie auswählen",
+        list(lebensmittel_kategorien.keys())
     )
 
     # Zeitraum auswählen
@@ -73,153 +68,228 @@ with st.sidebar:
         list(zeitraum_optionen.keys())
     )
 
-    # Region auswählen
-    regionen = {
-        "Weltweit": "WORLD",
-        "Deutschland": "DE",
-        "Österreich": "AT",
-        "Schweiz": "CH",
-        "USA": "US",
-        "Großbritannien": "GB",
-        "Frankreich": "FR"
-    }
-    ausgewählte_region = st.selectbox(
-        "Region auswählen",
-        list(regionen.keys())
-    )
+# Deutsche Bundesländer mit ISO-Codes und IDs
+bundeslaender = {
+    "DE-BW": {"name": "Baden-Württemberg", "id": 0},
+    "DE-BY": {"name": "Bayern", "id": 1},
+    "DE-BE": {"name": "Berlin", "id": 2},
+    "DE-BB": {"name": "Brandenburg", "id": 3},
+    "DE-HB": {"name": "Bremen", "id": 4},
+    "DE-HH": {"name": "Hamburg", "id": 5},
+    "DE-HE": {"name": "Hessen", "id": 6},
+    "DE-MV": {"name": "Mecklenburg-Vorpommern", "id": 7},
+    "DE-NI": {"name": "Niedersachsen", "id": 8},
+    "DE-NW": {"name": "Nordrhein-Westfalen", "id": 9},
+    "DE-RP": {"name": "Rheinland-Pfalz", "id": 10},
+    "DE-SL": {"name": "Saarland", "id": 11},
+    "DE-SN": {"name": "Sachsen", "id": 12},
+    "DE-ST": {"name": "Sachsen-Anhalt", "id": 13},
+    "DE-SH": {"name": "Schleswig-Holstein", "id": 14},
+    "DE-TH": {"name": "Thüringen", "id": 15}
+}
 
-# Funktion zum Generieren von Beispieldaten
-def beispieldaten_generieren(keywords, zeitraum, region):
+# Funktion zum Laden der GeoJSON-Daten für Deutschland
+@st.cache_data
+def load_germany_geojson():
+    # GeoJSON für deutsche Bundesländer
+    url = "https://raw.githubusercontent.com/isellsoap/deutschlandGeoJSON/main/2_bundeslaender/4_niedrig.geo.json"
+    response = requests.get(url)
+    geojson = json.loads(response.text)
+
+    # Füge IDs hinzu für einfachere Zuordnung
+    for feature in geojson['features']:
+        state_name = feature['properties']['name']
+        # Finde den ISO-Code für diesen Bundeslandnamen
+        iso_code = next((code for code, data in bundeslaender.items()
+                         if data['name'] == state_name), None)
+        if iso_code:
+            feature['id'] = iso_code
+
+    return geojson
+
+# Funktion zum Generieren von Beispieldaten für Deutschland
+def beispieldaten_generieren(keywords, zeitraum):
     # Erstelle einen Datumsbereich basierend auf dem ausgewählten Zeitraum
     if "1-m" in zeitraum:
         datumsbereich = pd.date_range(end=pd.Timestamp.now(), periods=30, freq='D')
     elif "3-m" in zeitraum:
         datumsbereich = pd.date_range(end=pd.Timestamp.now(), periods=90, freq='D')
-    else:  # "12-m"
+    else:  # 12-m
         datumsbereich = pd.date_range(end=pd.Timestamp.now(), periods=52, freq='W')
 
     # Erstelle Beispieldaten für das Interesse über Zeit
     daten = {}
     for keyword in keywords:
+        # Generiere zufällige Trenddaten mit einigen Mustern
         basis = np.random.randint(30, 70)
         trend = np.random.normal(basis, 15, size=len(datumsbereich))
+        # Stelle sicher, dass die Werte zwischen 0 und 100 liegen
         trend = np.clip(trend, 0, 100)
         daten[keyword] = trend
+
     interesse_über_zeit = pd.DataFrame(daten, index=datumsbereich)
 
-    # Erstelle Beispieldaten für das Interesse nach Region
-    länder_iso = {
-        "WORLD": "Weltweit",
-        "DE": "Deutschland",
-        "AT": "Österreich",
-        "CH": "Schweiz",
-        "US": "Vereinigte Staaten",
-        "GB": "Großbritannien",
-        "FR": "Frankreich",
-        "IT": "Italien",
-        "ES": "Spanien",
-        "JP": "Japan",
-        "CA": "Kanada",
-        "AU": "Australien",
-        "BR": "Brasilien",
-        "RU": "Russland",
-        "IN": "Indien",
-        "CN": "China"
-    }
+    # Erstelle Beispieldaten für das Interesse nach Bundesland
     regionsdaten = {}
     for keyword in keywords:
-        regionsdaten[keyword] = [np.random.randint(0, 100) for _ in range(len(länder_iso))]
-    interesse_nach_region = pd.DataFrame(regionsdaten, index=pd.Series(list(länder_iso.keys()), name='iso_alpha'))
-    interesse_nach_region['country'] = interesse_nach_region.index.map(lambda x: länder_iso.get(x, x))
+        # Generiere zufällige Werte für jedes Bundesland
+        regionsdaten[keyword] = [np.random.randint(0, 100) for _ in range(len(bundeslaender))]
+
+    # Erstelle DataFrame mit Bundesland-Codes als Index
+    interesse_nach_region = pd.DataFrame(
+        regionsdaten,
+        index=pd.Series(list(bundeslaender.keys()), name='iso_alpha')
+    )
+    # Füge Bundeslandnamen hinzu
+    interesse_nach_region['bundesland'] = interesse_nach_region.index.map(
+        lambda x: bundeslaender[x]['name'] if x in bundeslaender else x
+    )
 
     return interesse_über_zeit, interesse_nach_region
 
-# Funktion zum Abrufen von Daten aus der TheMealDB API
+# Funktion zum Abrufen von Daten aus der Google Trends API mit Kompatibilitätslösung
 @st.cache_data(ttl=3600)
-def mealdb_daten_abrufen(zeitraum, region, max_keywords):
-    url = "https://www.themealdb.com/api/json/v1/1/latest.php"
+def trends_daten_abrufen(keywords, zeitraum):
     try:
-        response = requests.get(url, timeout=5)
-        response.raise_for_status()  # Prüft auf HTTP-Fehler
-        data = response.json()
-        if "meals" in data and data["meals"]:
-            # Extrahiere die Mahlzeitennamen
-            meals = data["meals"]
-            keywords = [meal["strMeal"] for meal in meals if meal.get("strMeal")]
-            # Begrenze die Anzahl der Keywords auf max_keywords
-            keywords = keywords[:max_keywords] if len(keywords) > max_keywords else keywords
-        else:
-            raise ValueError("Keine Mahlzeiten-Daten verfügbar.")
-    except Exception as e:
-        st.warning(f"Fehler beim Abrufen der TheMealDB API-Daten: {e}. Es werden Beispieldaten verwendet.")
-        keywords = ["Pizza", "Burger", "Sushi"]  # Fallback-Keywords
+        # Importiere pytrends
+        from pytrends.request import TrendReq
 
-    # Erstelle einen Datumsbereich basierend auf dem ausgewählten Zeitraum
-    if "1-m" in zeitraum:
-        datumsbereich = pd.date_range(end=pd.Timestamp.now(), periods=30, freq='D')
-    elif "3-m" in zeitraum:
-        datumsbereich = pd.date_range(end=pd.Timestamp.now(), periods=90, freq='D')
-    else:  # "12-m"
-        datumsbereich = pd.date_range(end=pd.Timestamp.now(), periods=52, freq='W')
+        # Lösung für das method_whitelist / allowed_methods Problem
+        # Erstelle eine eigene Session mit korrekten Retry-Parametern
+        import requests
+        from requests.adapters import HTTPAdapter
 
-    # Generiere simulierte Trenddaten für "Interesse über Zeit"
-    daten = {}
-    for keyword in keywords:
-        basis = np.random.randint(30, 70)
-        trend = np.random.normal(basis, 15, size=len(datumsbereich))
-        trend = np.clip(trend, 0, 100)
-        daten[keyword] = trend
-    interesse_über_zeit = pd.DataFrame(daten, index=datumsbereich)
+        # Prüfe, welche Version von urllib3 verwendet wird
+        import urllib3
+        session = requests.Session()
 
-    # Generiere simulierte Daten für "Interesse nach Region"
-    länder_iso = {
-        "WORLD": "Weltweit",
-        "DE": "Deutschland",
-        "AT": "Österreich",
-        "CH": "Schweiz",
-        "US": "Vereinigte Staaten",
-        "GB": "Großbritannien",
-        "FR": "Frankreich",
-        "IT": "Italien",
-        "ES": "Spanien",
-        "JP": "Japan",
-        "CA": "Kanada",
-        "AU": "Australien",
-        "BR": "Brasilien",
-        "RU": "Russland",
-        "IN": "Indien",
-        "CN": "China"
-    }
-    regionsdaten = {}
-    for keyword in keywords:
-        regionsdaten[keyword] = [np.random.randint(0, 100) for _ in range(len(länder_iso))]
-    interesse_nach_region = pd.DataFrame(regionsdaten, index=pd.Series(list(länder_iso.keys()), name='iso_alpha'))
-    interesse_nach_region['country'] = interesse_nach_region.index.map(lambda x: länder_iso.get(x, x))
+        try:
+            # Versuche mit dem neuen Parameter (urllib3 >= 2.0.0)
+            retry_strategy = urllib3.Retry(
+                total=3,
+                backoff_factor=1,
+                allowed_methods=["GET", "POST"]
+            )
+            adapter = HTTPAdapter(max_retries=retry_strategy)
+        except TypeError:
+            # Fallback für ältere Versionen (urllib3 < 2.0.0)
+            retry_strategy = urllib3.Retry(
+                total=3,
+                backoff_factor=1,
+                method_whitelist=["GET", "POST"]
+            )
+            adapter = HTTPAdapter(max_retries=retry_strategy)
 
-    return interesse_über_zeit, interesse_nach_region
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
 
-# Hole die Daten je nach ausgewählter Datenquelle
-if datenquelle == "TheMealDB API":
-    with st.spinner("Lade Daten von der TheMealDB API..."):
-        # Der API-Aufruf liefert dynamisch die Mahlzeiten als Keywords
-        interesse_über_zeit, interesse_nach_region = mealdb_daten_abrufen(
-            zeitraum_optionen[ausgewählter_zeitraum],
-            regionen[ausgewählte_region],
-            max_keywords
+        # Initialisiere pytrends mit der angepassten Session
+        pytrends = TrendReq(
+            hl='de-DE',
+            timeout=(10, 30),
+            tz=360,
+            requests_args={'verify': True}
         )
-        # Überschreibe die Keywords anhand der API-Ergebnisse
-        keywords = list(interesse_über_zeit.columns)
-else:
-    # Bei Beispieldaten werden Keywords aus der ausgewählten Lebensmittelkategorie genutzt
-    keywords = lebensmittel_kategorien[ausgewählte_kategorie][:max_keywords]
-    with st.spinner("Lade Beispieldaten..."):
+
+        # Baue die Payload - Auf Deutschland beschränken
+        geo = "DE"
+
+        # Füge zufällige Verzögerung hinzu, um Rate-Limiting zu vermeiden
+        time.sleep(random.uniform(1.0, 3.0))
+
+        pytrends.build_payload(
+            kw_list=keywords,
+            cat=71,  # Lebensmittel & Getränke Kategorie
+            timeframe=zeitraum,
+            geo=geo
+        )
+
+        # Füge zufällige Verzögerung hinzu
+        time.sleep(random.uniform(1.5, 3.5))
+
+        # Hole das Interesse über Zeit
+        interesse_über_zeit = pytrends.interest_over_time()
+
+        # Hole das Interesse nach Region (Bundesländer)
+        try:
+            # Füge zufällige Verzögerung hinzu
+            time.sleep(random.uniform(1.5, 3.5))
+
+            # Hole Daten für deutsche Bundesländer
+            interesse_nach_region_raw = pytrends.interest_by_region(resolution='REGION', inc_low_vol=True)
+
+            # Mapping von Google Trends Regionennamen zu ISO-Codes
+            region_to_iso = {
+                "Baden-Württemberg": "DE-BW",
+                "Bayern": "DE-BY",
+                "Berlin": "DE-BE",
+                "Brandenburg": "DE-BB",
+                "Bremen": "DE-HB",
+                "Hamburg": "DE-HH",
+                "Hessen": "DE-HE",
+                "Mecklenburg-Vorpommern": "DE-MV",
+                "Niedersachsen": "DE-NI",
+                "Nordrhein-Westfalen": "DE-NW",
+                "Rheinland-Pfalz": "DE-RP",
+                "Saarland": "DE-SL",
+                "Sachsen": "DE-SN",
+                "Sachsen-Anhalt": "DE-ST",
+                "Schleswig-Holstein": "DE-SH",
+                "Thüringen": "DE-TH"
+            }
+
+            # Erstelle neue DataFrame mit ISO-Codes
+            interesse_nach_region = pd.DataFrame(index=interesse_nach_region_raw.index)
+            for col in interesse_nach_region_raw.columns:
+                interesse_nach_region[col] = interesse_nach_region_raw[col]
+
+            # Konvertiere Regionenindex zu ISO-Codes
+            interesse_nach_region['iso_alpha'] = interesse_nach_region.index.map(
+                lambda x: region_to_iso.get(x, "")
+            )
+            interesse_nach_region = interesse_nach_region.set_index('iso_alpha')
+            interesse_nach_region['bundesland'] = interesse_nach_region.index.map(
+                lambda x: bundeslaender[x]['name'] if x in bundeslaender else x
+            )
+
+        except Exception as e:
+            st.warning(f"Konnte regionales Interesse nicht abrufen: {str(e)}")
+            # Fallback zu Beispieldaten für die Region
+            _, interesse_nach_region = beispieldaten_generieren(keywords, zeitraum)
+
+        return interesse_über_zeit, interesse_nach_region
+    except Exception as e:
+        st.error(f"Fehler beim Abrufen der Trends-Daten: {str(e)}")
+        return pd.DataFrame(), pd.DataFrame()
+
+# Hole die Keywords für die ausgewählte Kategorie
+keywords = lebensmittel_kategorien[ausgewählte_kategorie]
+
+# Hole die Daten
+with st.spinner(f"Lade {'Beispiel' if datenquelle == 'Beispieldaten' else 'Trends'}-Daten..."):
+    if datenquelle == "Google Trends API":
+        # Versuche, die Daten abzurufen, mit Fallback zu Beispieldaten
+        interesse_über_zeit, interesse_nach_region = trends_daten_abrufen(
+            keywords,
+            zeitraum_optionen[ausgewählter_zeitraum]
+        )
+        # Fallback zu Beispieldaten, wenn keine Daten gefunden wurden
+        if interesse_über_zeit.empty:
+            st.warning("""
+            Keine Daten von Google Trends gefunden oder API-Fehler aufgetreten.
+            Zeige Beispieldaten stattdessen. Versuche es später erneut.
+            """)
+            interesse_über_zeit, interesse_nach_region = beispieldaten_generieren(
+                keywords,
+                zeitraum_optionen[ausgewählter_zeitraum]
+            )
+    else:
         interesse_über_zeit, interesse_nach_region = beispieldaten_generieren(
             keywords,
-            zeitraum_optionen[ausgewählter_zeitraum],
-            regionen[ausgewählte_region]
+            zeitraum_optionen[ausgewählter_zeitraum]
         )
 
-# Visualisierung der Daten
+# Zeige die Daten an
 if not interesse_über_zeit.empty:
     # Erstelle Tabs für verschiedene Visualisierungen
     tab1, tab2 = st.tabs(["Trend über Zeit", "Regionales Interesse"])
@@ -227,20 +297,12 @@ if not interesse_über_zeit.empty:
     with tab1:
         st.subheader("Interesse über Zeit")
 
-        st.markdown("""
-        ### So liest du diesen Graphen:
-
-        1. **Was wird angezeigt?** Der Graph zeigt das relative Suchinteresse (simuliert) für die ausgewählten Lebensmittel über Zeit.
-        2. **Y-Achse (Interesse):** Die Werte reichen von 0 bis 100, wobei 100 das höchste Interesse darstellt.
-        3. **X-Achse (Zeit):** Zeigt den ausgewählten Zeitraum.
-        4. **Linien:** Jede Linie repräsentiert einen Suchbegriff. Höhere Werte bedeuten mehr Interesse.
-        """)
-
+        # Plotte das Interesse über Zeit
         fig = px.line(
             interesse_über_zeit,
             x=interesse_über_zeit.index,
             y=keywords,
-            title=f"Interesse über Zeit ({ausgewählter_zeitraum})",
+            title=f"Interesse über Zeit in Deutschland ({ausgewählter_zeitraum})",
             labels={"value": "Interesse (0-100)", "variable": "Lebensmittel", "index": "Datum"}
         )
         fig.update_traces(line=dict(width=3))
@@ -252,15 +314,16 @@ if not interesse_über_zeit.empty:
         )
         st.plotly_chart(fig, use_container_width=True)
 
-        st.subheader("Aktuelle Werte")
+        # Erklärungstext in Klammern unterhalb des Graphen
         st.markdown("""
-        ### Erklärung:
-
-        - **Aktueller Wert:** Zeigt das aktuelle Interesse am Suchbegriff (0-100).
-        - **Veränderung:** Zeigt, wie sich das Interesse im Vergleich zum vorherigen Zeitpunkt verändert hat.
-          - 🔴 Negative Werte bedeuten abnehmendes Interesse
-          - 🟢 Positive Werte bedeuten zunehmendes Interesse
+        *(So liest du diesen Graphen: Der Graph zeigt das relative Suchinteresse für die ausgewählten Lebensmittel über Zeit.
+        Die Y-Achse (Interesse) reicht von 0 bis 100, wobei 100 das höchste Interesse darstellt.
+        Die X-Achse zeigt den ausgewählten Zeitraum. Jede Linie repräsentiert einen Suchbegriff.
+        Höhere Werte bedeuten mehr Interesse.)*
         """)
+
+        # Zeige aktuelle Werte
+        st.subheader("Aktuelle Werte")
 
         cols = st.columns(len(keywords))
         for i, keyword in enumerate(keywords):
@@ -279,56 +342,80 @@ if not interesse_über_zeit.empty:
                         value="N/A"
                     )
 
-    with tab2:
-        st.subheader("Regionales Interesse")
-
+        # Erklärungstext in Klammern unterhalb der Metriken
         st.markdown("""
-        ### So liest du diese Karte:
-
-        1. **Was wird angezeigt?** Die Karte zeigt, in welchen Ländern das Interesse (simuliert) am ausgewählten Lebensmittel am größten ist.
-        2. **Farbskala:** Dunklere Farben bedeuten höheres Interesse (0-100).
-        3. **Hover:** Bewege die Maus über ein Land, um den genauen Wert zu sehen.
-        4. **Legende:** Die Farbskala rechts zeigt die Werte von niedrig (hell) bis hoch (dunkel).
+        *(Was bedeuten diese Zahlen: Der aktuelle Wert zeigt das aktuelle Interesse am Suchbegriff (0-100).
+        Die Veränderung zeigt, wie sich das Interesse im Vergleich zum vorherigen Zeitpunkt verändert hat.
+        Negative Werte (rot) bedeuten abnehmendes Interesse, positive Werte (grün) bedeuten zunehmendes Interesse.)*
         """)
 
+    with tab2:
+        st.subheader("Regionales Interesse in Deutschland")
+
+        # Erstelle ein Dropdown zur Auswahl des Keywords
         selected_keyword = st.selectbox(
             "Lebensmittel auswählen, um regionales Interesse anzuzeigen",
             keywords
         )
 
+        # Prüfe, ob Daten für das ausgewählte Keyword vorhanden sind
         if selected_keyword in interesse_nach_region.columns:
+            # Lade GeoJSON für Deutschland
+            geojson_data = load_germany_geojson()
+
+            # Erstelle eine Choroplethenkarte nur für Deutschland mit GeoJSON
             fig = px.choropleth(
                 interesse_nach_region,
+                geojson=geojson_data,
                 locations=interesse_nach_region.index,
+                featureidkey="id",
                 color=selected_keyword,
-                hover_name="country",  # Ländernamen für Hover
                 color_continuous_scale=px.colors.sequential.Viridis,
-                title=f"Regionales Interesse für {selected_keyword}",
+                hover_name="bundesland",
+                title=f"Regionales Interesse für {selected_keyword} in Deutschland",
                 labels={selected_keyword: "Interesse (0-100)"}
             )
+
+            # Entferne Hintergrundkarte und zeige nur Deutschland
+            fig.update_geos(
+                fitbounds="locations",
+                visible=False,
+                projection_type="mercator"
+            )
+
+            # Anpassen des Layouts für bessere Darstellung
             fig.update_layout(
-                geo=dict(
-                    showframe=False,
-                    showcoastlines=True,
-                    projection_type='equirectangular'
+                margin={"r":0, "t":50, "l":0, "b":0},
+                coloraxis_colorbar=dict(
+                    title="Interesse",
+                    thicknessmode="pixels", thickness=20,
+                    lenmode="pixels", len=300,
+                    yanchor="top", y=1,
+                    ticks="outside"
                 )
             )
+
             st.plotly_chart(fig, use_container_width=True)
 
-            st.subheader(f"Top 5 Länder für {selected_keyword}")
+            # Erklärungstext in Klammern unterhalb der Karte
             st.markdown("""
-            ### Erklärung:
-
-            Diese Tabelle zeigt die 5 Länder mit dem höchsten Interesse am ausgewählten Lebensmittel.
-            Ein höherer Wert (0-100) bedeutet ein größeres Suchinteresse in diesem Land.
+            *(So liest du diese Karte: Die Karte zeigt, in welchen Bundesländern das Interesse am ausgewählten Lebensmittel am größten ist.
+            Dunklere Farben bedeuten höheres Interesse (0-100). Bewege die Maus über ein Bundesland, um den genauen Wert zu sehen.
+            Die Farbskala rechts zeigt die Werte von niedrig (hell) bis hoch (dunkel).)*
             """)
 
-            region_data = interesse_nach_region[[selected_keyword, 'country']].sort_values(by=selected_keyword, ascending=False)
-            region_data = region_data.rename(columns={selected_keyword: "Interesse", "country": "Land"})
+            # Zeige die Bundesländer als Tabelle
+            st.subheader(f"Bundesländer-Ranking für {selected_keyword}")
+
+            # Extrahiere die Daten für das ausgewählte Keyword
+            region_data = interesse_nach_region[[selected_keyword, 'bundesland']].sort_values(by=selected_keyword, ascending=False)
+            region_data = region_data.rename(columns={selected_keyword: "Interesse", "bundesland": "Bundesland"})
+
+            # Zeige alle Bundesländer als Tabelle
             st.dataframe(
-                region_data.head(5).reset_index(drop=True),
+                region_data.reset_index(drop=True),
                 column_config={
-                    "Land": st.column_config.TextColumn("Land"),
+                    "Bundesland": st.column_config.TextColumn("Bundesland"),
                     "Interesse": st.column_config.ProgressColumn(
                         "Interesse (0-100)",
                         format="%d",
@@ -339,6 +426,12 @@ if not interesse_über_zeit.empty:
                 hide_index=True,
                 use_container_width=True
             )
+
+            # Erklärungstext in Klammern unterhalb der Tabelle
+            st.markdown("""
+            *(Was bedeutet diese Tabelle: Diese Tabelle zeigt alle Bundesländer, sortiert nach dem Interesse am ausgewählten Lebensmittel.
+            Ein höherer Wert (0-100) bedeutet ein größeres Suchinteresse in diesem Bundesland.)*
+            """)
         else:
             st.info(f"Keine regionalen Daten verfügbar für {selected_keyword}")
 
@@ -347,11 +440,12 @@ st.markdown("---")
 st.markdown("""
 ### Über die Daten
 
-- **Interesse-Werte (0-100):** Die Werte zeigen das relative, simulierte Suchinteresse, wobei 100 das höchste Interesse darstellt.
+- **Interesse-Werte (0-100):** Die Werte zeigen das relative Suchinteresse, wobei 100 das höchste Interesse darstellt.
 - **Zeitraum:** Die Daten beziehen sich auf den ausgewählten Zeitraum.
-- **Datenquelle:** Die Daten werden entweder aus Beispieldaten oder (bei entsprechender Auswahl) von der TheMealDB API abgerufen.
+- **Datenquelle:** Die Daten stammen aus Google Trends oder sind Beispieldaten, wenn keine echten Daten verfügbar sind.
+- **Region:** Alle Daten beziehen sich ausschließlich auf Deutschland.
 
-**Hinweis:** Bei Problemen mit der API (z. B. Verbindungsproblemen) werden Beispieldaten verwendet.
+**Hinweis zu API-Fehlern:** Wenn du Fehler siehst, versuche die Beispieldaten zu verwenden.
 """)
 
 # Cache-Steuerung
