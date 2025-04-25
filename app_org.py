@@ -82,20 +82,71 @@ bundeslaender = {
 }
 
 #Laden der GeoJSON-Daten für Deutschland
-@st.cache_data(ttl=86400)
+@st.cache_data(ttl=86400)  # Cache für 24 Stunden
 def load_germany_geojson():
-    url = "https://raw.githubusercontent.com/isellsoap/deutschlandGeoJSON/main/2_bundeslaender/4_niedrig.geo.json"
-    headers = {"User-Agent": "FoodTrendsDashboard/1.0"}
-    response = requests.get(url, headers=headers)
-    response.raise_for_status()
-    geojson = response.json()
-    for feature in geojson['features']:
-        state_name = feature['properties']['name']
-        iso_code = next((code for code, data in bundeslaender.items() if data['name'] == state_name), None)
-        if iso_code:
-            feature['id'] = iso_code
-    return geojson
+    try:
+        # Lokale Datei verwenden, falls vorhanden
+        try:
+            with open("germany_geojson.json", "r") as f:
+                geojson = json.load(f)
 
+                # Füge IDs hinzu für einfachere Zuordnung, falls noch nicht vorhanden
+                for feature in geojson['features']:
+                    if 'id' not in feature:
+                        state_name = feature['properties']['name']
+                        iso_code = next((code for code, data in bundeslaender.items()
+                                        if data['name'] == state_name), None)
+                        if iso_code:
+                            feature['id'] = iso_code
+
+                return geojson
+        except FileNotFoundError:
+            pass  # Wenn lokale Datei nicht existiert, von GitHub laden
+
+        # GeoJSON für deutsche Bundesländer von GitHub laden
+        url = "https://raw.githubusercontent.com/isellsoap/deutschlandGeoJSON/main/2_bundeslaender/4_niedrig.geo.json"
+
+        # Verwende einen benutzerdefinierten User-Agent, um höflich zu sein
+        headers = {
+            "User-Agent": "FoodTrendsDashboard/1.0 (Studentenprojekt)",
+            "Accept": "application/json"
+        }
+
+        response = requests.get(url, headers=headers, timeout=10)
+
+        # Prüfe auf Fehler
+        response.raise_for_status()
+
+        geojson = json.loads(response.text)
+
+        # Füge IDs hinzu für einfachere Zuordnung
+        for feature in geojson['features']:
+            state_name = feature['properties']['name']
+            # Finde den ISO-Code für diesen Bundeslandnamen
+            iso_code = next((code for code, data in bundeslaender.items()
+                            if data['name'] == state_name), None)
+            if iso_code:
+                feature['id'] = iso_code
+
+        # Speichere die Daten lokal für zukünftige Verwendung
+        try:
+            with open("germany_geojson.json", "w") as f:
+                json.dump(geojson, f)
+        except Exception as e:
+            st.warning(f"Konnte GeoJSON nicht lokal speichern: {str(e)}")
+
+        return geojson
+
+    except Exception as e:
+        st.error(f"Fehler beim Laden der GeoJSON-Daten: {str(e)}")
+
+        # Fallback: Leeres GeoJSON mit minimaler Struktur
+        fallback_geojson = {
+            "type": "FeatureCollection",
+            "features": []
+        }
+
+        return fallback_geojson
 
 # Funktion zum Generieren von Beispieldaten für Deutschland
 def beispieldaten_generieren(keywords, zeitraum):
@@ -107,7 +158,7 @@ def beispieldaten_generieren(keywords, zeitraum):
     else:  # 12-m
         datumsbereich = pd.date_range(end=pd.Timestamp.now(), periods=52, freq='W')
 
-    # EBeispieldaten für das Interesse über Zeit
+    # Erstelle Beispieldaten für das Interesse über Zeit
     daten = {}
     for keyword in keywords:
         # Generiere zufällige Trenddaten mit einigen Mustern
@@ -119,9 +170,10 @@ def beispieldaten_generieren(keywords, zeitraum):
 
     interesse_über_zeit = pd.DataFrame(daten, index=datumsbereich)
 
-    # Beispieldaten für das Interesse nach Bundesland
+    # Erstelle Beispieldaten für das Interesse nach Bundesland
     regionsdaten = {}
     for keyword in keywords:
+        # Generiere zufällige Werte für jedes Bundesland
         regionsdaten[keyword] = [np.random.randint(0, 100) for _ in range(len(bundeslaender))]
 
     # Erstelle DataFrame mit Bundesland-Codes als Index
@@ -136,12 +188,15 @@ def beispieldaten_generieren(keywords, zeitraum):
 
     return interesse_über_zeit, interesse_nach_region
 
-# Daten aus der pytrends API
+# Funktion zum Abrufen von Daten aus der pytrends API mit verbesserter Fehlerbehandlung
 @st.cache_data(ttl=7200)  # Cache für 2 Stunden
 def trends_daten_abrufen(keywords, zeitraum):
     try:
         # Importiere pytrends
         from pytrends.request import TrendReq
+
+        # Lösung für das method_whitelist / allowed_methods Problem
+        # Erstelle eine eigene Session mit korrekten Retry-Parametern
         import requests
         from requests.adapters import HTTPAdapter
 
@@ -149,7 +204,7 @@ def trends_daten_abrufen(keywords, zeitraum):
         import urllib3
         session = requests.Session()
 
-        # Fehlerbehandlung
+        # Konfiguriere die Session für bessere Fehlerbehandlung
         try:
             # Versuche mit dem neuen Parameter (urllib3 >= 2.0.0)
             retry_strategy = urllib3.Retry(
@@ -174,7 +229,7 @@ def trends_daten_abrufen(keywords, zeitraum):
 
         # Füge einen benutzerdefinierten User-Agent hinzu
         session.headers.update({
-            "User-Agent": "FoodTrendsDashboard/1.0",
+            "User-Agent": "FoodTrendsDashboard/1.0 (Studentenprojekt)",
             "Accept-Language": "de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7"
         })
 
