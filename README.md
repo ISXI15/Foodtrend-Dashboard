@@ -29,7 +29,7 @@ _5. Projekt klonen & starten_
 ```bash
 # Repository klonen
 git clone https://github.com/ISXI15/Foodtrend-Dashboard.git
-cd Foodtrend-Dashboard
+cd Food
 
 # Virtuelle Umgebung erstellen
 python -m venv venv
@@ -40,7 +40,7 @@ source venv/bin/activate
 # Windows (CMD):
 venv\Scripts\activate
 # Windows (PowerShell):
-.\venv\Scripts\Activate.ps1
+venv\Scripts\activate
 
 # Abhängigkeiten installieren
 pip install -r requirements.txt

@@ -97,9 +97,8 @@ def load_germany_geojson():
     return geojson
 
 
-# Funktion zum Generieren von Beispieldaten für Deutschland
+# Beispieldaten für Deutschland
 def beispieldaten_generieren(keywords, zeitraum):
-    # Erstelle einen Datumsbereich basierend auf dem ausgewählten Zeitraum
     if "1-m" in zeitraum:
         datumsbereich = pd.date_range(end=pd.Timestamp.now(), periods=30, freq='D')
     elif "3-m" in zeitraum:
@@ -110,26 +109,22 @@ def beispieldaten_generieren(keywords, zeitraum):
     # EBeispieldaten für das Interesse über Zeit
     daten = {}
     for keyword in keywords:
-        # Generiere zufällige Trenddaten mit einigen Mustern
         basis = np.random.randint(30, 70)
         trend = np.random.normal(basis, 15, size=len(datumsbereich))
-        # Stelle sicher, dass die Werte zwischen 0 und 100 liegen
         trend = np.clip(trend, 0, 100)
         daten[keyword] = trend
 
     interesse_über_zeit = pd.DataFrame(daten, index=datumsbereich)
 
-    # Beispieldaten für das Interesse nach Bundesland
+    # Interesse nach Bundesland
     regionsdaten = {}
     for keyword in keywords:
         regionsdaten[keyword] = [np.random.randint(0, 100) for _ in range(len(bundeslaender))]
 
-    # Erstelle DataFrame mit Bundesland-Codes als Index
     interesse_nach_region = pd.DataFrame(
         regionsdaten,
         index=pd.Series(list(bundeslaender.keys()), name='iso_alpha')
     )
-    # Füge Bundeslandnamen hinzu
     interesse_nach_region['bundesland'] = interesse_nach_region.index.map(
         lambda x: bundeslaender[x]['name'] if x in bundeslaender else x
     )
@@ -137,7 +132,7 @@ def beispieldaten_generieren(keywords, zeitraum):
     return interesse_über_zeit, interesse_nach_region
 
 # Daten aus der pytrends API
-@st.cache_data(ttl=7200)  # Cache für 2 Stunden
+@st.cache_data(ttl=7200)
 def trends_daten_abrufen(keywords, zeitraum):
     try:
         # Importiere pytrends
@@ -145,7 +140,7 @@ def trends_daten_abrufen(keywords, zeitraum):
         import requests
         from requests.adapters import HTTPAdapter
 
-        # Prüfe, welche Version von urllib3 verwendet wird
+        # Version von urllib3
         import urllib3
         session = requests.Session()
 
