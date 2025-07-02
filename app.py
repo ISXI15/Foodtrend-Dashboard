@@ -7,20 +7,20 @@ import requests #API Anfragen
 from datetime import datetime #Datum
 
 #Seitentitel, Layout
-st.set_page_config(page_title="Alnatura Foodtrend-Dashboard", page_icon=":fries:", layout="wide")
-st.title("Alnatura Foodtrend-Dashboard")
-st.markdown("Entdecke Lebensmitteltrends in Deutschland")
+st.set_page_config(page_title="YUMMI", page_icon="🛒", layout="wide")
+st.title("YUMMI")
+st.markdown("Your Ultimate Monitor for Modern Ingredients")
 
 #Sidebar mit Filtern
 with st.sidebar:
     st.header("Einstellungen")
     datenquelle = st.radio("Datenquelle auswählen", ["Beispieldaten", "OpenFoodFacts API"])
     lebensmittel_kategorien = {
-        "Beliebte Küchen": ["Italienisches Essen", "Chinesisches Essen", "Deutsches Essen"],
-        "Diät-Trends": ["Vegane Ernährung", "Keto Diät", "Trennkost Diät"],
-        "Beliebte Zutaten": ["Avocado", "Quinoa", "Kurkuma"],
-        "Desserts": ["Käsekuchen", "Tiramisu", "Eis"],
-        "Getränke": ["Kaffee", "Bubble Tea", "Smoothie"]
+        "Beliebte Küchen": ["Italienisches Essen", "Chinesisches Essen", "Deutsches Essen","Mexikanisches Essen", "Spanisches Essen"],
+        "Diät-Trends": ["Vegane Ernährung", "Keto Diät", "Trennkost Diät", "Vegetarisch", "Low-Carb"],
+        "Beliebte Zutaten": ["Avocado", "Quinoa", "Kurkuma", "Ingwer", "Hanf"],
+        "Desserts": ["Käsekuchen", "Tiramisu", "Eis", "Churros", "Panna Cotta"],
+        "Getränke": ["Kaffee", "Bubble Tea", "Smoothie", "Sarti Spritz", "Kakao"]
     }
 
     ausgewählte_kategorie = st.selectbox("Lebensmittelkategorie auswählen", list(lebensmittel_kategorien.keys()))
@@ -114,7 +114,7 @@ else:
         st.plotly_chart(fig, use_container_width=True)
 
 #Erstellen einer KPI Tabelle
-        st.subheader("KPI Tabelle")
+        st.subheader("Top 5 & KPI Tabelle")
         kpi_rows = []
         for kw in keywords:
             kpi_rows.append({
