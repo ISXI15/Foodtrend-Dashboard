@@ -47,3 +47,5 @@ pip install -r requirements.txt
 
 # App starten
 streamlit run app.py
+
+# Das Dashboard ist über den Desktop oder über das Smartphone abrufbar unter YUMMI · Streamlit.
