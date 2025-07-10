@@ -1,4 +1,6 @@
-﻿**1. Prototyp Foodtrend-Dashboard**
+Hinweis: Streamlit Apps verfallen in einen Ruhemodus zzZZ, einfach aufwecken!
+ 
+ **1. Prototyp Foodtrend-Dashboard**
 
 Dies ist eine interaktive Web-App, die mit [**Streamlit**](https://streamlit.io/) entwickelt wurde.
 Sie analysiert und visualisiert Daten mithilfe von Plotly, Dash, Pandas und weiteren Tools.
@@ -49,3 +51,4 @@ pip install -r requirements.txt
 streamlit run app.py
 
 # Das Dashboard ist über den Desktop oder über das Smartphone abrufbar unter YUMMI · Streamlit.
+
